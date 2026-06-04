@@ -6,7 +6,8 @@
 <title>Klyp — Turn Every Stream Into Viral Clips</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1346,70 +1347,91 @@
     if (!isOpen) item.classList.add('open');
   }
 
-  /* ===== WAITLIST FORM ===== */
-  async function submitWaitlist() {
-    const name = document.getElementById('form-name').value.trim();
-    const email = document.getElementById('form-email').value.trim();
-    const note = document.getElementById('form-note');
+  /* ===== EMAILJS CONFIG ════════════════════════════════════════
+     Steps to set this up (takes ~10 minutes, totally free):
 
-    if (!name) { flashError('form-name', 'Please enter your name'); return; }
+     1. Go to https://www.emailjs.com and create a free account
+     2. Add a Service: Dashboard → Email Services → Add New Service
+        → Choose Gmail → connect your Gmail → copy the Service ID
+     3. Create Template 1 (confirmation to user):
+        Dashboard → Email Templates → Create New Template
+        Name it: klyp_confirmation
+        To Email: {{user_email}}
+        Subject: You're on the Klyp waitlist! 🎬
+        Body:
+          Hi {{user_name}},
+          You're officially on the Klyp waitlist!
+          We'll email you the moment early access opens.
+          — The Klyp Team
+        Save → copy the Template ID
+     4. Create Template 2 (notification to you):
+        Name it: klyp_notification
+        To Email: YOUR_GMAIL@gmail.com  ← hardcode your email here
+        Subject: 🔔 New Klyp waitlist signup: {{user_name}}
+        Body:
+          New signup!
+          Name: {{user_name}}
+          Email: {{user_email}}
+          Time: {{signup_time}}
+        Save → copy the Template ID
+     5. Get your Public Key:
+        Dashboard → Account → General → Public Key
+     6. Replace the 4 values below with your real ones
+     ══════════════════════════════════════════════════════════ */
+
+  const EMAILJS_PUBLIC_KEY     = 'lU5DqNyPDS19kpcI7';
+  const EMAILJS_SERVICE_ID     = 'service_xbxfmgk';
+  const EMAILJS_TEMPLATE_USER  = 'template_fkvd6uk';
+  const EMAILJS_TEMPLATE_OWNER = 'template_9bbjqnb';
+
+  // Initialize EmailJS
+  if (EMAILJS_PUBLIC_KEY !== 'YOUR_PUBLIC_KEY') {
+    emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+  }
+
+  async function submitWaitlist() {
+    const name  = document.getElementById('form-name').value.trim();
+    const email = document.getElementById('form-email').value.trim();
+    const note  = document.getElementById('form-note');
+    const btn   = document.querySelector('.form-btn');
+
+    // Validate
+    if (!name)  { flashError('form-name',  'Please enter your name');        return; }
     if (!email || !email.includes('@')) { flashError('form-email', 'Please enter a valid email'); return; }
 
-    const btn = document.querySelector('.form-btn');
     btn.textContent = 'Joining…';
-    btn.disabled = true;
+    btn.disabled    = true;
     btn.style.opacity = '0.7';
 
-    /* ── Supabase Integration ──────────────────────────────────────
-       Replace the values below with your own:
-         SUPABASE_URL  → Project Settings > API > Project URL
-         SUPABASE_KEY  → Project Settings > API > anon/public key
-       Create a table called "waitlist" with columns:
-         id         uuid  default uuid_generate_v4() primary key
-         name       text  not null
-         email      text  not null unique
-         created_at timestamptz default now()
-       ─────────────────────────────────────────────────────────── */
-    const SUPABASE_URL = 'YOUR_SUPABASE_URL';
-    const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
+    // Demo mode if keys not set yet
+    if (EMAILJS_PUBLIC_KEY === 'YOUR_PUBLIC_KEY') {
+      await new Promise(r => setTimeout(r, 900));
+      showSuccess();
+      return;
+    }
+
+    const templateParams = {
+      user_name:   name,
+      user_email:  email,
+      signup_time: new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+    };
 
     try {
-      if (SUPABASE_URL === 'YOUR_SUPABASE_URL') {
-        /* Demo mode — no real Supabase connected yet */
-        await new Promise(r => setTimeout(r, 900));
-        showSuccess();
-        return;
-      }
+      // Send confirmation email to the user
+      await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_USER, templateParams);
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/waitlist`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify({ name, email })
-      });
+      // Send notification email to you
+      await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_OWNER, templateParams);
 
-      if (res.status === 409) {
-        note.textContent = "You're already on the waitlist — we'll be in touch!";
-        note.style.color = 'var(--accent)';
-        btn.textContent = 'Join Waitlist →';
-        btn.disabled = false;
-        btn.style.opacity = '1';
-        return;
-      }
-
-      if (!res.ok) throw new Error('Server error');
       showSuccess();
 
     } catch (err) {
-      btn.textContent = 'Join Waitlist →';
-      btn.disabled = false;
+      console.error('EmailJS error:', err);
+      btn.textContent   = 'Join Waitlist →';
+      btn.disabled      = false;
       btn.style.opacity = '1';
-      note.textContent = 'Something went wrong — please try again.';
-      note.style.color = 'var(--red)';
+      note.textContent  = 'Something went wrong — please try again.';
+      note.style.color  = 'var(--red)';
     }
   }
 
